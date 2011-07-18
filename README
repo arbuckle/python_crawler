@@ -1,0 +1,27 @@
+Crawl.py
+
+Crawl.py is a modular threaded crawler that crawls a specified domain and collects metadata
+about each page it visits.
+
+Data collected includes:
+    - url & parsed url (scheme/netloc/path/etc...)
+    - page load time in milliseconds
+    - page size in bytes
+    - link addresses on the page
+    - number of links on the page
+    - number of links within the page domain
+    - number of links targeting external domains
+
+Links on each page are recorded in the 'url_canonical' table.
+Visits to each link are recorded in the 'visit_metadata' table.
+Relationships between a visited link and all the links in the response are recorded in the 'page_rel' table.
+
+
+Planned functionality:
+- threaded URL loading
+- addition of an optional 'scrape page' function
+- global setting to allow already-visited URLs to be requeued.
+- improved documentation
+
+Known bugs:
+- URL encoding is sometimes completely broken, which may cause duplication issues and does result in errors loading the page
