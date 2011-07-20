@@ -11,20 +11,21 @@ globalData = {
     'whitelist': [], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
     'blacklist': [], #if target URL contains string match from this list, the URL will not be crawled.
     'startURL': 'http://www.example.com/',
-    'threadLimit': 5,
-    'queue': [] # used by the threader to collect response data objects for sequential processing
+    'threadLimit': 10, #set the number of concurrent requests.  play nice!
+    'queue': [], # used by the threader to collect response data objects for sequential processing
+    'debug': True # enable debug print statements
 }
 
 
 class Crawl:
     def __init__(self):
-        print 'Crawl | init called'
+        if globalData['debug']: print 'Crawl | init called'
         self.cookie = cookielib.CookieJar()
         opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(self.cookie))
         urllib2.install_opener(opener)
         self.db = DBOps()
     def getURL(self):
-        print 'Crawl | getURL called'
+        if globalData['debug']: print 'Crawl | getURL called'
         #check for start URL
         if globalData['startURL']:
             url = [(0, globalData['startURL'])]
@@ -34,7 +35,7 @@ class Crawl:
         return url
 
     def requestURL(self, data):
-        print 'Crawl | requestURL called'
+        if globalData['debug']: print 'Crawl | requestURL called'
         url = data['full_url']
         request = urllib2.Request(url)
         self.cookie.add_cookie_header(request)
@@ -54,11 +55,11 @@ class Crawl:
 
 class DBOps:
     def __init__(self):
-        print 'DBOps | init called'
+        if globalData['debug']: print 'DBOps | init called'
         self.connection = sqlite3.connect('crawl.db')
         self.c = self.connection.cursor ()
     def create(self):
-        print 'DBOps | create called'
+        if globalData['debug']: print 'DBOps | create called'
         self.c.execute('CREATE TABLE IF NOT EXISTS queue (url_id INTEGER PRIMARY KEY, url VARCHAR(1024))')
         self.c.execute('CREATE TABLE IF NOT EXISTS url_canonical (url_id INTEGER PRIMARY KEY, url VARCHAR(1024), times_visited INTEGER, times_referenced INTEGER)')
         self.c.execute('CREATE TABLE IF NOT EXISTS page_rel (link_src INTEGER, link_dest INTEGER, visit_id INTEGER)')
@@ -69,13 +70,13 @@ class DBOps:
         self.c.execute('CREATE INDEX IF NOT EXISTS idx_visit_metadata ON visit_metadata (full_url)')
         self.connection.commit() #TODO: find out if this is necessary
     def getURLFromQueue(self, limit):
-        print 'DBOps | getURLFromQueue called'
+        if globalData['debug']: print 'DBOps | getURLFromQueue called'
         self.c.execute('SELECT * FROM queue LIMIT ?', [str(limit)])
         return self.c.fetchall()
     def updateCanonical(self, data):
-        print 'DBOps | updateCanonical called'
+        if globalData['debug']: print 'DBOps | updateCanonical called'
         # checks each link for references in url_canonical, updates or adds records accordingly
-        url_canonical = self.c.execute('SELECT * FROM url_canonical') # possibly inefficient...
+        url_canonical = self.c.execute('SELECT * FROM url_canonical') # TODO:  which is better, 150 selects or selecting the whole table and running the links against the result?
         url_canonical = url_canonical.fetchall()
         for link in data['all_links']:
             match = False
@@ -92,16 +93,16 @@ class DBOps:
                 self.connection.commit()
         return data
     def addToQueue(self, data):
-        print 'DBOps | addToQueue called'
+        if globalData['debug']: print 'DBOps | addToQueue called'
         # compares eligible links against url_canonical and adds them to the queue if they're unique
         for link in data['queue_links']:
-            self.c.execute('SELECT * FROM url_canonical WHERE url = ?', [link])
+            self.c.execute('SELECT * FROM url_canonical WHERE url = ?', [link]) # TODO:  which is better, 150 selects or selecting the whole table and running the links against the result?
             if not self.c.fetchall():
                 self.c.execute('INSERT INTO queue VALUES (?, ?)', [None, link])
             self.connection.commit()
         return data
     def addVisitData(self, data):
-        print 'DBOps | addVisitData called'
+        if globalData['debug']: print 'DBOps | addVisitData called'
         # updates visit metadata, condition indicates whether error occurred.  Also ticks times_visited in url_Canonical
         if data['source']:
             self.c.execute('INSERT INTO visit_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -125,7 +126,7 @@ class DBOps:
         self.connection.commit()
         return data
     def updatePageRel(self, data):
-        print 'DBOps | updatePageRel called'
+        if globalData['debug']: print 'DBOps | updatePageRel called'
         # adds a relationships between the visit url_id and all the url_ids for the urls on the page
         link_src = self.c.execute('SELECT url_id FROM url_canonical WHERE url = ?', [data['request_url']])
         link_src = link_src.fetchall()[0][0]
@@ -142,7 +143,7 @@ class DBOps:
             self.connection.commit()
         return data
     def removeURLFromQueue(self, data):
-        print 'DBOps | removeURLFromQueue called'
+        if globalData['debug']: print 'DBOps | removeURLFromQueue called'
         # removes the URL from the queue, if the ID is not 0 (0 indicating start url)
         url_id = data['url_id']
         if url_id:
@@ -154,7 +155,7 @@ class ParseResponse:
     def __init__(self):
         pass
     def getLinks(self, data):
-        print 'ParseResponse | getLinks called'
+        if globalData['debug']: print 'ParseResponse | getLinks called'
         # parses response source and pulls all valid hrefs out of the page source
         soup = BeautifulSoup(data['source'])
         soup = soup.findAll('a')
@@ -169,7 +170,7 @@ class ParseResponse:
         return data
     #TODO:  add a method to encode all captured URLs in UTF8 (or should it be unicode?)
     def parseEligibleLinks(self, data):
-        print 'ParseResponse | parseEligibleLinks called'
+        if globalData['debug']: print 'ParseResponse | parseEligibleLinks called'
         # returns a list of links meeting the eligibility requirements set by the global white/black lists
         output = []
         #iterate through links and check against blacklist
@@ -191,7 +192,7 @@ class ParseResponse:
         data.update({'queue_links': output})
         return data
     def parseLinkTarget(self, data):
-        print 'ParseResponse | parseLinkTarget called'
+        if globalData['debug']: print 'ParseResponse | parseLinkTarget called'
         # returns a list of links targeting the same netloc/domain
         internal = []
         external = []
@@ -205,7 +206,7 @@ class ParseResponse:
         data.update({'internal_links': internal, 'external_links': external})
         return data
     def main(self, data):
-        print 'ParseResponse | main called'
+        if globalData['debug']: print 'ParseResponse | main called'
         url = data['request_url']
         # break the URL down into all the constituent components
         parsedURL = urlparse.urlparse(url)
@@ -260,7 +261,6 @@ def main():
     while url:
         print ' 000 BEGIN '
         if not globalData['queue']:
-            print url
             for request in url:
                 data = {'url_id': request[0], 'full_url': request[1]}
                 queue.put(data)
@@ -272,14 +272,15 @@ def main():
                 thr.start()
             queue.join()
         else:
-            print 'waiting...', len(globalData['queue'])
-        print ' 001 DATA ADDED TO globalData QUEUE', len(globalData['queue'])
+            if globalData['debug']: print 'waiting...', len(globalData['queue'])
+            pass
+        if globalData['debug']: print ' 001 DATA ADDED TO globalData QUEUE'
         # from this point forward, the data object will contain all the information the application uses
         # each function will accept the whole data object, manipulate it as needed, and
 
         if len(globalData['queue']) == numUrls:
             for data in globalData['queue']:
-                print ' 002 PROCESSING DATA OBJECT'
+                if globalData['debug']: print ' 002 PROCESSING DATA OBJECT'
                 if data['source']:
                     # pass response object to parser
                     data = parse.main(data)
@@ -292,11 +293,16 @@ def main():
                 else:
                     db.addVisitData(data) # log visit data for the current url
                     db.removeURLFromQueue(data) # remove the current URL from the queue
-            print ' 003 RESETTING DATA OBJECT'
+                if globalData['debug']: print '\n\ttime: ', data['visitedtime']
+                if globalData['debug']: print '\turl: ', data['request_url']
+                if globalData['debug']: print '\tloadtime: ', data['loadtime']
+                if globalData['debug']: print '\tsize: ', data['page_size']
+                if globalData['debug']: print '\tlinks: ', data['count_all_links'], '\n'
+            if globalData['debug']: print ' 003 RESETTING DATA OBJECT'
             time.sleep(1)
             # reset
             globalData['queue'] = []
             url = crawl.getURL()
-
             numUrls = 0
+            print ' 004 DONE'
 main()
