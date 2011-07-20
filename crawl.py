@@ -11,7 +11,7 @@ globalData = {
     'whitelist': [], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
     'blacklist': [], #if target URL contains string match from this list, the URL will not be crawled.
     'startURL': 'http://www.example.com/',
-    'threadLimit': 10, #set the number of concurrent requests.  play nice!
+    'threadLimit': 2, #set the number of concurrent requests.  play nice!
     'queue': [], # used by the threader to collect response data objects for sequential processing
     'debug': True # enable debug print statements
 }
@@ -59,6 +59,7 @@ class DBOps:
         self.connection = sqlite3.connect('crawl.db')
         self.c = self.connection.cursor ()
     def create(self):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | create called'
         self.c.execute('CREATE TABLE IF NOT EXISTS queue (url_id INTEGER PRIMARY KEY, url VARCHAR(1024))')
         self.c.execute('CREATE TABLE IF NOT EXISTS url_canonical (url_id INTEGER PRIMARY KEY, url VARCHAR(1024), times_visited INTEGER, times_referenced INTEGER)')
@@ -69,11 +70,17 @@ class DBOps:
         self.c.execute('CREATE INDEX IF NOT EXISTS idx_url_canonical ON url_canonical (url)')
         self.c.execute('CREATE INDEX IF NOT EXISTS idx_visit_metadata ON visit_metadata (full_url)')
         self.connection.commit() #TODO: find out if this is necessary
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | create completed in ', end - start
     def getURLFromQueue(self, limit):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | getURLFromQueue called'
         self.c.execute('SELECT * FROM queue LIMIT ?', [str(limit)])
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | getURLFromQueue completed in ', end - start
         return self.c.fetchall()
     def updateCanonical(self, data):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | updateCanonical called'
         # checks each link for references in url_canonical, updates or adds records accordingly
         url_canonical = self.c.execute('SELECT * FROM url_canonical') # TODO:  which is better, 150 selects or selecting the whole table and running the links against the result?
@@ -91,8 +98,11 @@ class DBOps:
             if not match:
                 self.c.execute('INSERT INTO url_canonical VALUES (?, ?, ?, ?)', [None, link, 0, 0])
                 self.connection.commit()
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | updateCanonical completed in ', end-start
         return data
     def addToQueue(self, data):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | addToQueue called'
         # compares eligible links against url_canonical and adds them to the queue if they're unique
         for link in data['queue_links']:
@@ -100,8 +110,11 @@ class DBOps:
             if not self.c.fetchall():
                 self.c.execute('INSERT INTO queue VALUES (?, ?)', [None, link])
             self.connection.commit()
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | addToQueue completed in ', end-start
         return data
     def addVisitData(self, data):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | addVisitData called'
         # updates visit metadata, condition indicates whether error occurred.  Also ticks times_visited in url_Canonical
         if data['source']:
@@ -124,8 +137,11 @@ class DBOps:
         else:
             self.c.execute('INSERT INTO url_canonical VALUES (?, ?, ?, ?)', [None, data['request_url'], 1, 0])
         self.connection.commit()
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | addVisitData completed in ', end - start
         return data
     def updatePageRel(self, data):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | updatePageRel called'
         # adds a relationships between the visit url_id and all the url_ids for the urls on the page
         link_src = self.c.execute('SELECT url_id FROM url_canonical WHERE url = ?', [data['request_url']])
@@ -141,14 +157,19 @@ class DBOps:
             link_dest = link_dest.fetchall()[0][0]
             self.c.execute('INSERT INTO page_rel VALUES (?, ?, ?)', [link_src, visit_id, link_dest])
             self.connection.commit()
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | updatePageRel completed in ', end - start
         return data
     def removeURLFromQueue(self, data):
+        start = time.clock()
         if globalData['debug']: print 'DBOps | removeURLFromQueue called'
         # removes the URL from the queue, if the ID is not 0 (0 indicating start url)
         url_id = data['url_id']
         if url_id:
             self.c.execute('DELETE FROM queue WHERE url_id = ?', [url_id])
             self.connection.commit()
+        end = time.clock()
+        if globalData['debug']: print 'DBOps | removeURLFromQueue completed in ', end - start
         return data
 
 class ParseResponse:
@@ -293,11 +314,15 @@ def main():
                 else:
                     db.addVisitData(data) # log visit data for the current url
                     db.removeURLFromQueue(data) # remove the current URL from the queue
-                if globalData['debug']: print '\n\ttime: ', data['visitedtime']
-                if globalData['debug']: print '\turl: ', data['request_url']
-                if globalData['debug']: print '\tloadtime: ', data['loadtime']
-                if globalData['debug']: print '\tsize: ', data['page_size']
-                if globalData['debug']: print '\tlinks: ', data['count_all_links'], '\n'
+                try:
+                    if globalData['debug']: print '\n\ttime: ', data['visitedtime']
+                    if globalData['debug']: print '\turl: ', data['request_url']
+                    if globalData['debug']: print '\tloadtime: ', data['loadtime']
+                    if globalData['debug']: print '\tsize: ', data['page_size']
+                    if globalData['debug']: print '\tlinks: ', data['count_all_links'], '\n'
+                except KeyError:
+                    if globalData['debug']: print '\tthere was an error loading the page'
+                    if globalData['debug']: print '\turl: ', data['request_url'], '\n'
             if globalData['debug']: print ' 003 RESETTING DATA OBJECT'
             time.sleep(1)
             # reset
