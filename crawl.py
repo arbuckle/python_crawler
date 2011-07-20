@@ -252,14 +252,13 @@ def main():
 
     #start crawl
     url = crawl.getURL()
-    time.sleep(0.5)
+    time.sleep(1)
     while url:
         print ' 000 BEGIN '
-        time.sleep(1)
         if not globalData['queue']:
             print url
-            for url in url:
-                data = {'url_id': url[0], 'full_url': url[1]}
+            for request in url:
+                data = {'url_id': request[0], 'full_url': request[1]}
                 queue.put(data)
                 numUrls += 1
 
@@ -267,6 +266,7 @@ def main():
                 thr = RequestThreading(queue)
                 thr.setDaemon(True)
                 thr.start()
+            queue.join()
         else:
             print 'waiting...', len(globalData['queue'])
         print ' 001 DATA ADDED TO globalData QUEUE', len(globalData['queue'])
@@ -289,10 +289,10 @@ def main():
                     db.addVisitData(data) # log visit data for the current url
                     db.removeURLFromQueue(data) # remove the current URL from the queue
             print ' 003 RESETTING DATA OBJECT'
-            time.sleep(0.5)
+            time.sleep(1)
             # reset
             globalData['queue'] = []
             url = crawl.getURL()
-            queue.join()
+
             numUrls = 0
 main()
