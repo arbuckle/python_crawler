@@ -64,6 +64,10 @@ class DBOps:
         self.c.execute('CREATE TABLE IF NOT EXISTS page_rel (link_src INTEGER, link_dest INTEGER, visit_id INTEGER)')
         self.c.execute('CREATE TABLE IF NOT EXISTS visit_metadata (visit_id INTEGER PRIMARY KEY, visited DATETIME, full_url VARCHAR(1024), scheme VARCHAR(64), netloc VARCHAR(256), path VARCHAR(256), params VARCHAR(256), query VARCHAR(256), fragment VARCHAR(256), \
             size INTEGER, loadtime FLOAT, num_links INTEGER, links_internal INTEGER, links_external INTEGER, error VARCHAR(512))')
+        self.c.execute('CREATE INDEX IF NOT EXISTS idx_queue ON queue (url)')
+        self.c.execute('CREATE INDEX IF NOT EXISTS idx_url_canonical ON url_canonical (url)')
+        self.c.execute('CREATE INDEX IF NOT EXISTS idx_visit_metadata ON visit_metadata (full_url)')
+        self.connection.commit() #TODO: find out if this is necessary
     def getURLFromQueue(self, limit):
         print 'DBOps | getURLFromQueue called'
         self.c.execute('SELECT * FROM queue LIMIT ?', [str(limit)])

@@ -27,4 +27,3 @@ Planned functionality:
 
 Known issues:
 - URL encoding is sometimes incorrect, which may cause duplication issues and does result in errors opening requests
-- current query structure is inefficient.  SQL tables need to be indexed, queries need to be optimized
