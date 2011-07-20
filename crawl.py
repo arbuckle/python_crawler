@@ -8,11 +8,11 @@ time.clock() # initializing clock
 
 globalData = {
     'useragent': 'Crawler 0.0',
-    'whitelist': ['ifriends.net', 'www.ifriends.net'], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
-    'blacklist': ['showcam', 'ireqfeed', 'showclub'], #if target URL contains string match from this list, the URL will not be crawled.
-    'startURL': 'http://www.ifriends.net/',
+    'whitelist': [], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
+    'blacklist': [], #if target URL contains string match from this list, the URL will not be crawled.
+    'startURL': 'http://www.example.com/',
     'threadLimit': 5,
-    'queue': [] # not a queue object, a collection of response data objects to sequentially process
+    'queue': [] # used by the threader to collect response data objects for sequential processing
 }
 
 
@@ -163,6 +163,7 @@ class ParseResponse:
                 continue
         data.update({'all_links': links})
         return data
+    #TODO:  add a method to encode all captured URLs in UTF8 (or should it be unicode?)
     def parseEligibleLinks(self, data):
         print 'ParseResponse | parseEligibleLinks called'
         # returns a list of links meeting the eligibility requirements set by the global white/black lists
@@ -251,17 +252,18 @@ def main():
 
     #start crawl
     url = crawl.getURL()
+    time.sleep(0.5)
     while url:
         print ' 000 BEGIN '
         time.sleep(1)
         if not globalData['queue']:
-            print 'sreegs', url
+            print url
             for url in url:
                 data = {'url_id': url[0], 'full_url': url[1]}
                 queue.put(data)
                 numUrls += 1
 
-            for iter in range(globalData['threadLimit']):
+            for iter in range(globalData['threadLimit']): #TODO:  see what happens when more threads are made than urls in the tuple
                 thr = RequestThreading(queue)
                 thr.setDaemon(True)
                 thr.start()
@@ -287,8 +289,9 @@ def main():
                     db.addVisitData(data) # log visit data for the current url
                     db.removeURLFromQueue(data) # remove the current URL from the queue
             print ' 003 RESETTING DATA OBJECT'
+            time.sleep(0.5)
+            # reset
             globalData['queue'] = []
-            # get next URL
             url = crawl.getURL()
             queue.join()
             numUrls = 0
