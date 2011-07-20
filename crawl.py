@@ -3,14 +3,16 @@ import urlparse
 from BeautifulSoup import BeautifulSoup
 import sqlite3
 import time, datetime
-
+import threading, Queue
 time.clock() # initializing clock
 
 globalData = {
     'useragent': 'Crawler 0.0',
-    'whitelist': [], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
-    'blacklist': [], #if target URL contains string match from this list, the URL will not be crawled.
-    'startURL': 'http://www.example.com',
+    'whitelist': ['ifriends.net', 'www.ifriends.net'], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
+    'blacklist': ['showcam', 'ireqfeed', 'showclub'], #if target URL contains string match from this list, the URL will not be crawled.
+    'startURL': 'http://www.ifriends.net/',
+    'threadLimit': 5,
+    'queue': [] # not a queue object, a collection of response data objects to sequentially process
 }
 
 
@@ -28,7 +30,7 @@ class Crawl:
             url = [(0, globalData['startURL'])]
             globalData['startURL'] = None
         else:
-            url = self.db.getURLFromQueue(1)
+            url = self.db.getURLFromQueue(globalData['threadLimit'])
         return url
 
     def requestURL(self, data):
@@ -224,11 +226,25 @@ class ParseResponse:
         #data = customParse(data)
         return data
 
+class RequestThreading(threading.Thread):
+    def __init__(self, queue):
+        threading.Thread.__init__(self)
+        self.in_queue = queue # queue.put is used to populate the input object with target URL tuples
+    def run(self):
+        while True:
+            target = self.in_queue.get() # gets the next object from the queue?
+            data = Crawl().requestURL(target) # target is passed to getURL
+            globalData['queue'].append(data)
+            self.in_queue.task_done()
+
+
 def main():
     #Initialize class instances
     crawl = Crawl()
     db = DBOps()
     parse = ParseResponse()
+    queue = Queue.Queue()
+    numUrls = 0
 
     #create database
     db.create()
@@ -236,31 +252,44 @@ def main():
     #start crawl
     url = crawl.getURL()
     while url:
-        url = url[0]
-        data = {'url_id': url[0], 'full_url': url[1]}
-        data = crawl.requestURL(data)
-        print 'url: ', url
-        print 'loaded in: ', data['loadtime']
+        print ' 000 BEGIN '
+        time.sleep(1)
+        if not globalData['queue']:
+            print 'sreegs', url
+            for url in url:
+                data = {'url_id': url[0], 'full_url': url[1]}
+                queue.put(data)
+                numUrls += 1
 
+            for iter in range(globalData['threadLimit']):
+                thr = RequestThreading(queue)
+                thr.setDaemon(True)
+                thr.start()
+        else:
+            print 'waiting...', len(globalData['queue'])
+        print ' 001 DATA ADDED TO globalData QUEUE', len(globalData['queue'])
         # from this point forward, the data object will contain all the information the application uses
         # each function will accept the whole data object, manipulate it as needed, and
 
-        #TODO: check to see if error occurred and jump
-        if data['source']:
-            # pass response object to parser
-            data = parse.main(data)
+        if len(globalData['queue']) == numUrls:
+            for data in globalData['queue']:
+                print ' 002 PROCESSING DATA OBJECT'
+                if data['source']:
+                    # pass response object to parser
+                    data = parse.main(data)
 
-            db.addToQueue(data) # add all eligible links from the current url response to the queue
-            db.updateCanonical(data) # add all links on the page to the url_canonical table
-            db.addVisitData(data) # log visit data for the current url
-            db.updatePageRel(data) # add relationships between links to the page_rel table
-            db.removeURLFromQueue(data) # remove the current URL from the queue
-        else:
-            db.addVisitData(data) # log visit data for the current url
-            db.removeURLFromQueue(data) # remove the current URL from the queue
-
-        #get next URL
-        url = crawl.getURL()
-
-
+                    db.addToQueue(data) # add all eligible links from the current url response to the queue
+                    db.updateCanonical(data) # add all links on the page to the url_canonical table
+                    db.addVisitData(data) # log visit data for the current url
+                    db.updatePageRel(data) # add relationships between links to the page_rel table
+                    db.removeURLFromQueue(data) # remove the current URL from the queue
+                else:
+                    db.addVisitData(data) # log visit data for the current url
+                    db.removeURLFromQueue(data) # remove the current URL from the queue
+            print ' 003 RESETTING DATA OBJECT'
+            globalData['queue'] = []
+            # get next URL
+            url = crawl.getURL()
+            queue.join()
+            numUrls = 0
 main()
