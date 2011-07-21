@@ -68,6 +68,7 @@ class DBOps:
             size INTEGER, loadtime FLOAT, num_links INTEGER, links_internal INTEGER, links_external INTEGER, error VARCHAR(512))')
         self.c.execute('CREATE INDEX IF NOT EXISTS idx_queue ON queue (url)')
         self.c.execute('CREATE INDEX IF NOT EXISTS idx_url_canonical ON url_canonical (url)')
+        self.c.execute('CREATE INDEX IF NOT EXISTS idx_url_canonical_digits ON url_canonical (times_visited, times_referenced)')
         self.c.execute('CREATE INDEX IF NOT EXISTS idx_visit_metadata ON visit_metadata (full_url)')
         self.connection.commit() #TODO: find out if this is necessary
         end = time.clock()
@@ -79,25 +80,19 @@ class DBOps:
         end = time.clock()
         if globalData['debug']: print 'DBOps | getURLFromQueue completed in ', end - start
         return self.c.fetchall()
-    def updateCanonical(self, data):
+    def updateCanonical (self, data):
         start = time.clock()
         if globalData['debug']: print 'DBOps | updateCanonical called'
-        # checks each link for references in url_canonical, updates or adds records accordingly
-        url_canonical = self.c.execute('SELECT * FROM url_canonical') # TODO:  which is better, 150 selects or selecting the whole table and running the links against the result?
-        url_canonical = url_canonical.fetchall()
         for link in data['all_links']:
-            match = False
-            for record in url_canonical:
-                if link == record[1]:
-                    # tick times_referenced
-                    times_referenced = record[3] + 1
-                    self.c.execute('UPDATE url_canonical SET times_referenced = ? WHERE url = ?', [times_referenced, link])
-                    self.connection.commit()
-                    match = True
-                    break
-            if not match:
+            self.c.execute('SELECT * FROM url_canonical WHERE url = ?', [link])
+            record = self.c.fetchall()
+            if record:
+                times_referenced = record[0][3] + 1
+                self.c.execute('UPDATE url_canonical SET times_referenced = ? WHERE url = ?', [times_referenced, link])
+            else:
                 self.c.execute('INSERT INTO url_canonical VALUES (?, ?, ?, ?)', [None, link, 0, 0])
-                self.connection.commit()
+            self.connection.commit()
+            self.c.execute('SELECT * FROM url_canonical WHERE url = ?', [link])
         end = time.clock()
         if globalData['debug']: print 'DBOps | updateCanonical completed in ', end-start
         return data
@@ -106,7 +101,7 @@ class DBOps:
         if globalData['debug']: print 'DBOps | addToQueue called'
         # compares eligible links against url_canonical and adds them to the queue if they're unique
         for link in data['queue_links']:
-            self.c.execute('SELECT * FROM url_canonical WHERE url = ?', [link]) # TODO:  which is better, 150 selects or selecting the whole table and running the links against the result?
+            self.c.execute('SELECT * FROM url_canonical WHERE url = ?', [link])
             if not self.c.fetchall():
                 self.c.execute('INSERT INTO queue VALUES (?, ?)', [None, link])
             self.connection.commit()
@@ -152,7 +147,6 @@ class DBOps:
         #link_src INTEGER, link_dest INTEGER, visit_id INTEGER
 
         for link in data['all_links']:
-            # n+1 queries!  TODO: should I just grab the whole table and iterate over it in memory?
             link_dest = self.c.execute('SELECT url_id FROM url_canonical WHERE url = ?', [link])
             link_dest = link_dest.fetchall()[0][0]
             self.c.execute('INSERT INTO page_rel VALUES (?, ?, ?)', [link_src, visit_id, link_dest])
@@ -271,7 +265,6 @@ def main():
     db = DBOps()
     parse = ParseResponse()
     queue = Queue.Queue()
-    numUrls = 0
 
     #create database
     db.create()
@@ -285,8 +278,6 @@ def main():
             for request in url:
                 data = {'url_id': request[0], 'full_url': request[1]}
                 queue.put(data)
-                numUrls += 1
-
             for iter in range(globalData['threadLimit']): #TODO:  see what happens when more threads are made than urls in the tuple
                 thr = RequestThreading(queue)
                 thr.setDaemon(True)
@@ -299,35 +290,33 @@ def main():
         # from this point forward, the data object will contain all the information the application uses
         # each function will accept the whole data object, manipulate it as needed, and
 
-        if len(globalData['queue']) == numUrls:
-            for data in globalData['queue']:
-                if globalData['debug']: print ' 002 PROCESSING DATA OBJECT'
-                if data['source']:
-                    # pass response object to parser
-                    data = parse.main(data)
+        for data in globalData['queue']:
+            if globalData['debug']: print ' 002 PROCESSING DATA OBJECT'
+            if data['source']:
+                # pass response object to parser
+                data = parse.main(data)
 
-                    db.addToQueue(data) # add all eligible links from the current url response to the queue
-                    db.updateCanonical(data) # add all links on the page to the url_canonical table
-                    db.addVisitData(data) # log visit data for the current url
-                    db.updatePageRel(data) # add relationships between links to the page_rel table
-                    db.removeURLFromQueue(data) # remove the current URL from the queue
-                else:
-                    db.addVisitData(data) # log visit data for the current url
-                    db.removeURLFromQueue(data) # remove the current URL from the queue
-                try:
-                    if globalData['debug']: print '\n\ttime: ', data['visitedtime']
-                    if globalData['debug']: print '\turl: ', data['request_url']
-                    if globalData['debug']: print '\tloadtime: ', data['loadtime']
-                    if globalData['debug']: print '\tsize: ', data['page_size']
-                    if globalData['debug']: print '\tlinks: ', data['count_all_links'], '\n'
-                except KeyError:
-                    if globalData['debug']: print '\tthere was an error loading the page'
-                    if globalData['debug']: print '\turl: ', data['request_url'], '\n'
-            if globalData['debug']: print ' 003 RESETTING DATA OBJECT'
-            time.sleep(1)
-            # reset
-            globalData['queue'] = []
-            url = crawl.getURL()
-            numUrls = 0
-            print ' 004 DONE'
+                db.addToQueue(data) # add all eligible links from the current url response to the queue
+                db.updateCanonical(data) # add all links on the page to the url_canonical table
+                db.addVisitData(data) # log visit data for the current url
+                db.updatePageRel(data) # add relationships between links to the page_rel table
+                db.removeURLFromQueue(data) # remove the current URL from the queue
+            else:
+                db.addVisitData(data) # log visit data for the current url
+                db.removeURLFromQueue(data) # remove the current URL from the queue
+            try:
+                if globalData['debug']: print '\n\ttime: ', data['visitedtime']
+                if globalData['debug']: print '\turl: ', data['request_url']
+                if globalData['debug']: print '\tloadtime: ', data['loadtime']
+                if globalData['debug']: print '\tsize: ', data['page_size']
+                if globalData['debug']: print '\tlinks: ', data['count_all_links'], '\n'
+            except KeyError:
+                if globalData['debug']: print '\tthere was an error loading the page'
+                if globalData['debug']: print '\turl: ', data['request_url'], '\n'
+        if globalData['debug']: print ' 003 RESETTING DATA OBJECT'
+        time.sleep(3)
+        # reset
+        globalData['queue'] = []
+        url = crawl.getURL()
+        print ' 004 DONE'
 main()
