@@ -10,9 +10,9 @@ globalData = {
     'useragent': 'Crawler 0.0', # TODO:  this is not sent!
     'whitelist': [], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
     'blacklist': [], #if target URL contains string match from this list, the URL will not be crawled.
-    'startURL': 'http://www.example.com/',
+    'startURL': 'http://www.sony.co.jp/',
     'threadLimit': 1, #set the number of concurrent requests.  play nice!
-    'requestInterval': 1, #number of seconds between requests.
+    'requestInterval': 0.5, #number of seconds between requests.
     'queue': [], # used by the threader to collect response data objects for sequential processing
     'debug': True # enable debug print statements
 }
@@ -282,11 +282,11 @@ def main():
             for request in url:
                 data = {'url_id': request[0], 'full_url': request[1]}
                 queue.put(data)
+                time.sleep(globalData['requestInterval'])
             for iter in range(globalData['threadLimit']): #TODO:  see what happens when more threads are made than urls in the tuple
                 thr = RequestThreading(queue)
                 thr.setDaemon(True)
                 thr.start()
-                time.sleep(globalData['requestInterval'])
             queue.join()
         else:
             if globalData['debug']: print 'waiting...', len(globalData['queue'])
