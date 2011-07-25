@@ -7,11 +7,12 @@ import threading, Queue
 time.clock() # initializing clock
 
 globalData = {
-    'useragent': 'Crawler 0.0',
+    'useragent': 'Crawler 0.0', # TODO:  this is not sent!
     'whitelist': [], #domains to crawl, subdomain.domain.tld.  no wildcards.  will scan the entire web if left blank
     'blacklist': [], #if target URL contains string match from this list, the URL will not be crawled.
     'startURL': 'http://www.example.com/',
-    'threadLimit': 2, #set the number of concurrent requests.  play nice!
+    'threadLimit': 1, #set the number of concurrent requests.  play nice!
+    'requestInterval': 1, #number of seconds between requests.
     'queue': [], # used by the threader to collect response data objects for sequential processing
     'debug': True # enable debug print statements
 }
@@ -168,7 +169,7 @@ class DBOps:
 
 class ParseResponse:
     def __init__(self):
-        pass
+        self.controlChars = dict.fromkeys(range(32))
     def getLinks(self, data):
         if globalData['debug']: print 'ParseResponse | getLinks called'
         # parses response source and pulls all valid hrefs out of the page source
@@ -178,7 +179,10 @@ class ParseResponse:
         for link in soup:
             try:
                 if 'http' in link['href']: #this is not the best... TODO:  make this less brittle
-                    links.append(link['href'])
+                    url = link['href']
+                    url = url.translate(self.controlChars) # removing reserved characters from url!
+                    url = url.lower()
+                    links.append(url)
             except KeyError:
                 continue
         data.update({'all_links': links})
@@ -282,6 +286,7 @@ def main():
                 thr = RequestThreading(queue)
                 thr.setDaemon(True)
                 thr.start()
+                time.sleep(globalData['requestInterval'])
             queue.join()
         else:
             if globalData['debug']: print 'waiting...', len(globalData['queue'])
